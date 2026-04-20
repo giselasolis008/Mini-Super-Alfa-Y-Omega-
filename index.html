@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Mini Súper Alfa y Omega</title>
+
+<style>
+body{font-family:Arial;background:linear-gradient(135deg,#1b5e20,#66bb6a);margin:0}
+.header{background:#0d3b1e;color:#fff;text-align:center;padding:15px;font-size:20px}
+.container{width:500px;margin:20px auto;background:#fff;padding:20px;border-radius:12px;box-shadow:0 0 15px rgba(0,0,0,.3)}
+input,select,button,textarea{width:100%;padding:10px;margin:6px 0;border-radius:6px}
+button{background:#2e7d32;color:#fff;border:none;font-weight:bold;cursor:pointer}
+button:hover{background:#1b5e20}
+.hidden{display:none}
+table{width:100%;border-collapse:collapse;margin-top:10px}
+th{background:#2e7d32;color:#fff}
+th,td{border:1px solid #ccc;padding:6px;text-align:center}
+td{word-break:break-word}
+</style>
+</head>
+
+<body>
+
+<div class="header">🖨️ Mini Súper Alfa y Omega</div>
+
+<div class="container" id="loginBox">
+<h2>Acceso</h2>
+<input id="loginUser" placeholder="Usuario">
+<input id="loginPass" type="password" placeholder="Contraseña">
+<button onclick="login()">Entrar</button>
+
+<hr>
+
+<h3>Registro</h3>
+<input id="regUser" placeholder="Usuario">
+<input id="regPass" type="password" placeholder="Contraseña">
+<select id="rol">
+<option value="user">Usuario</option>
+<option value="admin">Admin</option>
+</select>
+<button onclick="registrar()">Registrar</button>
+</div>
+
+<div class="container hidden" id="appBox">
+
+<p><b>Usuario:</b> <span id="usuarioActivo"></span></p>
+
+<input type="file" id="archivo" multiple accept=".pdf">
+
+<select id="lado">
+<option value="simple">Una cara</option>
+<option value="doble">Doble cara</option>
+</select>
+
+<input id="hojas" readonly placeholder="Hojas">
+<input id="totalPreview" readonly placeholder="Total">
+<input id="porcentaje" type="number" placeholder="Ganancia %">
+
+<textarea id="resumen" readonly style="height:120px"></textarea>
+
+<button onclick="registrarImpresion()">Registrar</button>
+<button onclick="imprimirPDFs()">🖨️ Imprimir PDFs</button>
+<button onclick="ticket()">🧾 Ticket</button>
+<button onclick="corteUsuario()">💰 Corte de caja</button>
+<button onclick="logout()">Salir</button>
+
+<button id="adminPanelBtn" class="hidden" onclick="verTodo()">👑 Panel Admin</button>
+<button id="deleteUserBtn" class="hidden" onclick="eliminarUsuario()">🗑️ Eliminar usuario</button>
+
+<h3 id="tituloTabla">Historial</h3>
+<table id="tabla"></table>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+/* ADMIN DEFAULT */
+let usersInit=JSON.parse(localStorage.getItem('usuarios'))||{};
+if(!usersInit["admin"]){
+usersInit["admin"]={password:"1234",impresiones:[],admin:true};
+localStorage.setItem('usuarios',JSON.stringify(usersInit));
+}
+
+/* REGISTRO */
+function registrar(){
+let users=JSON.parse(localStorage.getItem('usuarios'))||{};
+if(users[regUser.value]) return alert("Ya existe");
+
+users[regUser.value]={password:regPass.value,impresiones:[],admin:rol.value==="admin"};
+localStorage.setItem('usuarios',JSON.stringify(users));
+alert("Registrado");
+}
+
+/* LOGIN */
+function login(){
+let users=JSON.parse(localStorage.getItem('usuarios'))||{};
+if(!users[loginUser.value]||users[loginUser.value].password!==loginPass.value) return alert("Error");
+localStorage.setItem('sesion',loginUser.value);
+iniciar();
+}
+
+function iniciar(){
+loginBox.classList.add("hidden");
+appBox.classList.remove("hidden");
+
+let u=localStorage.getItem('sesion');
+usuarioActivo.textContent=u;
+
+let users=JSON.parse(localStorage.getItem('usuarios'));
+if(users[u].admin){
+adminPanelBtn.classList.remove("hidden");
+deleteUserBtn.classList.remove("hidden");
+}
+
+cargarTabla();
+}
+
+/* CALCULO */
+archivo.onchange=calcular;
+lado.onchange=calcular;
+
+async function calcular(){
+let files=archivo.files;
+if(!files.length)return;
+
+let hojasT=0,totalFinal=0,resumenTexto='';
+
+for(let f of files){
+const pdf=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;
+hojasT+=pdf.numPages;
+
+for(let i=1;i<=pdf.numPages;i++){
+const page=await pdf.getPage(i);
+const viewport=page.getViewport({scale:0.3});
+
+const canvas=document.createElement("canvas");
+const ctx=canvas.getContext("2d");
+canvas.width=viewport.width;
+canvas.height=viewport.height;
+
+await page.render({canvasContext:ctx,viewport}).promise;
+
+const data=ctx.getImageData(0,0,canvas.width,canvas.height).data;
+
+let tinta=0,total=0,colorPix=0;
+
+for(let j=0;j<data.length;j+=16){
+let r=data[j],g=data[j+1],b=data[j+2];
+let brillo=(r+g+b)/3;
+total++;
+
+if(brillo<240){
+tinta++;
+if(Math.abs(r-g)>15||Math.abs(r-b)>15) colorPix++;
+}
+}
+
+let porcentaje=(tinta/total)*100;
+let esColor=colorPix>(tinta*0.1);
+
+let precio=0;
+
+if(esColor){
+if(porcentaje<=25) precio=3;
+else if(porcentaje<=50) precio=5;
+else if(porcentaje<=75) precio=8;
+else precio=10;
+}else{
+if(porcentaje<=25) precio=2;
+else if(porcentaje<=50) precio=4;
+else if(porcentaje<=75) precio=6;
+else precio=8;
+}
+
+totalFinal+=precio;
+resumenTexto+=`Hoja ${i}: ${esColor?'Color':'BN'} ${porcentaje.toFixed(1)}% = $${precio}\n`;
+}
+}
+
+if(lado.value==='doble') totalFinal=Math.ceil(totalFinal/2);
+
+hojas.value=hojasT;
+totalPreview.value='$'+totalFinal;
+resumen.value=resumenTexto;
+}
+
+/* IMPRIMIR */
+function imprimirPDFs(){
+const files = archivo.files;
+if(!files.length) return alert("Selecciona PDFs");
+
+const win = window.open('', '_blank');
+
+win.document.write(`
+<html><head>
+<style>body{margin:0}iframe{width:100%;height:100vh;border:none}</style>
+</head><body></body></html>
+`);
+win.document.close();
+
+let cargados=0;
+
+for(let f of files){
+let iframe=win.document.createElement("iframe");
+iframe.src=URL.createObjectURL(f);
+
+iframe.onload=()=>{
+cargados++;
+if(cargados===files.length){
+setTimeout(()=>{win.print()},500);
+}
+};
+
+win.document.body.appendChild(iframe);
+}
+}
+
+/* TICKET */
+function ticket(){
+let total = totalPreview.value || "$0";
+let fecha = new Date().toLocaleString();
+let detalle = resumen.value || "Sin detalles";
+let nombres = [...archivo.files].map(f=>f.name).join(", ") || "Sin archivo";
+
+let w = window.open('', '_blank');
+
+w.document.write(`
+<html>
+<head>
+<title>Ticket</title>
+<style>
+body{font-family:monospace;text-align:center;padding:10px}
+hr{border:1px dashed #000}
+</style>
+</head>
+<body>
+
+<h2>Mini Súper</h2>
+<p>Alfa y Omega</p>
+
+<hr>
+
+<p>${fecha}</p>
+
+<p><b>Archivo:</b><br>${nombres}</p>
+
+<hr>
+
+<pre style="text-align:left">${detalle}</pre>
+
+<hr>
+
+<h2>Total: ${total}</h2>
+
+<button onclick="window.print()">🖨️ Imprimir</button>
+
+</body>
+</html>
+`);
+w.document.close();
+}
+
+/* REGISTRAR */
+function registrarImpresion(){
+let users=JSON.parse(localStorage.getItem('usuarios'));
+let u=localStorage.getItem('sesion');
+
+let total=parseFloat(totalPreview.value.replace("$",""));
+let p=parseFloat(document.getElementById("porcentaje").value)||0;
+
+let final=total+(total*p/100);
+
+let nombres=[...archivo.files].map(f=>f.name).join(", ");
+
+users[u].impresiones.push({
+fecha:new Date().toLocaleString(),
+archivo:nombres,
+total,
+final
+});
+
+localStorage.setItem('usuarios',JSON.stringify(users));
+cargarTabla();
+}
+
+/* TABLA */
+function cargarTabla(){
+document.getElementById("tituloTabla").innerText="Historial";
+
+let users=JSON.parse(localStorage.getItem('usuarios'));
+let u=localStorage.getItem('sesion');
+let isAdmin=users[u].admin;
+
+let datos=users[u].impresiones;
+
+tabla.innerHTML=`<tr>
+<th>Fecha</th><th>Archivo</th><th>Total</th><th>Final</th>${isAdmin?'<th>Eliminar</th>':''}
+</tr>`;
+
+datos.forEach((d,i)=>{
+tabla.innerHTML+=`
+<tr>
+<td>${d.fecha}</td>
+<td>${d.archivo}</td>
+<td>$${d.total}</td>
+<td>$${d.final||d.total}</td>
+${isAdmin?`<td><button onclick="eliminarImpresion('${u}',${i})">🗑️</button></td>`:''}
+</tr>`;
+});
+}
+
+/* PANEL ADMIN */
+function verTodo(){
+document.getElementById("tituloTabla").innerText="Panel Admin";
+
+let users=JSON.parse(localStorage.getItem('usuarios'));
+tabla.innerHTML=`
+<tr>
+<th>Usuario</th><th>Fecha</th><th>Archivo</th><th>Total</th><th>Final</th><th>Eliminar</th>
+</tr>`;
+
+let total=0;
+
+Object.keys(users).forEach(u=>{
+users[u].impresiones.forEach((d,i)=>{
+total+=(d.final||d.total);
+
+tabla.innerHTML+=`
+<tr>
+<td>${u}</td>
+<td>${d.fecha}</td>
+<td>${d.archivo}</td>
+<td>$${d.total}</td>
+<td>$${d.final||d.total}</td>
+<td><button onclick="eliminarImpresion('${u}',${i})">🗑️</button></td>
+</tr>`;
+});
+});
+
+tabla.innerHTML+=`<tr><td colspan="4"><b>Total General</b></td><td><b>$${total}</b></td><td></td></tr>`;
+}
+
+/* ELIMINAR IMPRESION */
+function eliminarImpresion(user,index){
+let users=JSON.parse(localStorage.getItem('usuarios'));
+if(confirm("¿Eliminar impresión?")){
+users[user].impresiones.splice(index,1);
+localStorage.setItem('usuarios',JSON.stringify(users));
+verTodo();
+}
+}
+
+/* ELIMINAR USUARIO */
+function eliminarUsuario(){
+let users=JSON.parse(localStorage.getItem('usuarios'));
+let user=prompt("Usuario:");
+
+if(!users[user]) return alert("No existe");
+if(user==="admin") return alert("No puedes borrar admin");
+
+if(confirm("¿Eliminar usuario?")){
+delete users[user];
+localStorage.setItem('usuarios',JSON.stringify(users));
+alert("Eliminado");
+verTodo();
+}
+}
+
+/* CORTE */
+function corteUsuario(){
+let users=JSON.parse(localStorage.getItem('usuarios'))||{};
+let total=0;
+
+Object.keys(users).forEach(u=>{
+total+=users[u].impresiones.reduce((a,b)=>a+(b.final||b.total),0);
+});
+
+alert("💰 TOTAL GENERAL: $" + total);
+}
+
+/* LOGOUT */
+function logout(){
+localStorage.removeItem('sesion');
+location.reload();
+}
+
+if(localStorage.getItem('sesion')) iniciar();
+</script>
+
+</body>
+</html>
